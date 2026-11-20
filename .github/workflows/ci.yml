@@ -1,0 +1,177 @@
+name: CI/CD scoring
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, "release/**", "hotfix/**"]
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.13"
+  DATA: data/credit_risk_dataset.csv
+  GINI_MIN: "0.70" # Data Scientist (notebook 2.0)
+  GINI_MAX_DROP: "0.03"
+  SLA_P95_MS: "200" # RELLENO: lo fija el equipo en la tabla de KPIs
+  SLA_AVAILABILITY: "0.999"
+
+jobs:
+  calidad-codigo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - name: Lint
+        run: ruff check . && ruff format --check .
+      - name: Tests unitarios
+        run: pytest -q
+
+  calidad-datos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Validación del dato
+        run: python -m src.validate_data "$DATA"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: informe-calidad-datos
+          path: outputs/data_validation.json
+
+  modelo:
+    needs: [calidad-codigo, calidad-datos]
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Calcular versión semántica
+        id: version
+        run: |
+          case "$GITHUB_REF" in
+            refs/tags/v*)        v="${GITHUB_REF_NAME#v}" ;;
+            refs/heads/release/*|refs/heads/hotfix/*)
+                                 v="${GITHUB_REF_NAME#*/}-rc.${GITHUB_RUN_NUMBER}" ;;
+            refs/pull/*)         v="pr-${{ github.event.number }}" ;;
+            *)                   v="dev-${GITHUB_SHA::7}" ;;
+          esac
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "Versión: $v" >> "$GITHUB_STEP_SUMMARY"
+      - name: Entrenar
+        run: python -m src.train --data "$DATA" --out model --version "${{ steps.version.outputs.version }}"
+      - name: Puerta de Gini
+        run: python -m src.gate
+      - uses: actions/upload-artifact@v4
+        with:
+          name: modelo
+          path: model/
+
+  imagen:
+    needs: modelo
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.modelo.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: modelo
+          path: model/
+      - name: Nombre de la imagen (en minúsculas)
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+      - name: Build
+        run: |
+          docker build --build-arg APP_VERSION="$VERSION" \
+            --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+            -t "$IMAGE:$VERSION" .
+      - name: Prueba de humo
+        run: |
+          docker run -d --name api -p 8000:8000 "$IMAGE:$VERSION"
+          for i in $(seq 1 30); do curl -sf localhost:8000/health && break; sleep 1; done
+          curl -sf -X POST localhost:8000/predict -H 'content-type: application/json' \
+            -d '{"person_age":30,"person_income":45000,"person_home_ownership":"RENT","person_emp_length":4,"loan_intent":"EDUCATION","loan_amnt":8000,"cb_person_default_on_file":"N","cb_person_cred_hist_length":5}'
+      - name: Publicar en GHCR (solo release, hotfix y etiquetas)
+        if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/heads/hotfix/'))
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker push "$IMAGE:$VERSION"
+
+  staging:
+    needs: [modelo, imagen]
+    if: github.event_name == 'push' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/heads/hotfix/'))
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      contents: read
+      packages: read
+      issues: write
+    env:
+      VERSION: ${{ needs.modelo.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - name: Arrancar la versión candidata
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker run -d --name api -p 8000:8000 "$IMAGE:$VERSION"
+          for i in $(seq 1 30); do curl -sf localhost:8000/health && break; sleep 1; done
+      - name: Prueba de carga y SLA
+        run: |
+          python loadtest/load_test.py --csv "$DATA" --rps 50 --duration 60 \
+            --p95-ms "$SLA_P95_MS" --availability "$SLA_AVAILABILITY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: resultado-carga-${{ env.VERSION }}
+          path: outputs/load_test.json
+      - name: Abrir incidente si se incumple el SLA
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create --title "Incidente: SLA incumplido en staging ($VERSION)" \
+            --body "La versión $VERSION no supera la prueba de carga. Ver ejecución: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+  produccion:
+    needs: [modelo, imagen]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment: production # requiere aprobación manual (Settings > Environments)
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.modelo.outputs.version }}
+    steps:
+      - name: Promocionar la versión a prod
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker buildx imagetools create --tag "$IMAGE:prod" "$IMAGE:$VERSION"
+          echo "En producción: $IMAGE:$VERSION" >> "$GITHUB_STEP_SUMMARY"

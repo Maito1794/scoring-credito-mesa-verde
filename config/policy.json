@@ -1,0 +1,14 @@
+{
+  "policy_version": "1.0.0",
+  "_nota": "Valores del notebook del Data Scientist (Credit_Score_Model_2_0.ipynb).",
+  "moc": 0.10,
+  "rating_bands": [
+    {"rating": "R1", "max_pd": 0.10},
+    {"rating": "R2", "max_pd": 0.20},
+    {"rating": "R3", "max_pd": 0.30},
+    {"rating": "R4", "max_pd": 0.50},
+    {"rating": "R5", "max_pd": 1.00}
+  ],
+  "cutoffs": {"approve_below": 0.25, "reject_from": 0.25, "max_dsti": 0.35},
+  "overrides": {}
+}

@@ -1,0 +1,26 @@
+name: Rollback de producción
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versión estable a la que volver (ej. 1.0.0)"
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Apuntar prod a la versión estable
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker buildx imagetools create --tag "$IMAGE:prod" "$IMAGE:$VERSION"
+          echo "Rollback: prod vuelve a $IMAGE:$VERSION" >> "$GITHUB_STEP_SUMMARY"
