@@ -6,3 +6,9 @@ __pycache__/
 model/*.joblib
 model/metrics.json
 outputs/*.json
+
+# Salidas que genera el notebook al ejecutarse; las oficiales van en reportes/
+notebooks/*.csv
+notebooks/*.png
+notebooks/*.json
+notebooks/*.joblib
