@@ -1,0 +1,10 @@
+# Un dueno de estos archivos tiene que aprobar cada PR que los toque (gana la ultima regla que coincide)
+# Isaac (MLOps): Maito1794 | Carlos (DS): Mr-Invoker-Coding | Diego (RM): diegocaste97 | Warner (BO): warner-gmail-git
+*                     @Maito1794 @Mr-Invoker-Coding
+/config/policy.json   @diegocaste97 @warner-gmail-git
+/src/train.py         @Mr-Invoker-Coding @Maito1794
+/src/features.py      @Mr-Invoker-Coding @Maito1794
+/src/schema.py        @Mr-Invoker-Coding @Maito1794
+/data/                @Mr-Invoker-Coding @Maito1794
+/notebooks/           @Mr-Invoker-Coding @Maito1794
+/reportes/            @Mr-Invoker-Coding @Maito1794

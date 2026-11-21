@@ -23,8 +23,8 @@ jobs:
   calidad-codigo:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -37,15 +37,15 @@ jobs:
   calidad-datos:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
       - run: pip install -r requirements.txt
       - name: Validación del dato
         run: python -m src.validate_data "$DATA"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: informe-calidad-datos
@@ -57,8 +57,8 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -79,7 +79,7 @@ jobs:
         run: python -m src.train --data "$DATA" --out model --version "${{ steps.version.outputs.version }}"
       - name: Puerta de Gini
         run: python -m src.gate
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: modelo
           path: model/
@@ -93,8 +93,8 @@ jobs:
     env:
       VERSION: ${{ needs.modelo.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v6
         with:
           name: modelo
           path: model/
@@ -129,8 +129,8 @@ jobs:
     env:
       VERSION: ${{ needs.modelo.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -145,7 +145,7 @@ jobs:
         run: |
           python loadtest/load_test.py --csv "$DATA" --rps 50 --duration 60 \
             --p95-ms "$SLA_P95_MS" --availability "$SLA_AVAILABILITY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: resultado-carga-${{ env.VERSION }}
