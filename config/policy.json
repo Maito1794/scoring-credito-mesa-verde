@@ -9,6 +9,6 @@
     {"rating": "R4", "max_pd": 0.50},
     {"rating": "R5", "max_pd": 1.00}
   ],
-  "cutoffs": {"approve_below": 0.25, "reject_from": 0.25, "max_dsti": 0.35},
+  "cutoffs": {"approve_below": 0.15, "reject_from": 0.25, "max_dsti": 0.35},
   "overrides": {}
 }
